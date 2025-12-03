@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>26°C 溫度調校儀 - 體感輸入模式 (響應式)</title>
+    <!-- 引入 Tailwind CSS 實現簡約溫和設計 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 自訂莫蘭迪色調和字體 */
+        :root {
+            --color-bg-light: #F9F7F4; /* 暖米白背景 */
+            --color-text-dark: #333333; /* 深色文字 */
+            --color-comfort-green: #A3B8A8; /* 柔和淡灰綠 - 舒適區 */
+            --color-warm: #E68A8A; /* 柔和紅 - 過熱 */
+            --color-cool: #7ABAC8; /* 柔和藍 - 過冷 */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--color-bg-light);
+            color: var(--color-text-dark);
+            min-height: 10vh;
+        }
+        .card {
+            background-color: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border-radius: 1rem;
+            padding: 1.5rem;
+        }
+        /* 核心溫度計樣式 - 橫向佈局調整 */
+        #calibrator-track {
+            height: 16px; /* 軌道高度 */
+            width: 100%; /* 佔滿寬度 */
+            background-color: #E0E0E0;
+            border-radius: 8px;
+            position: relative;
+        }
+        .comfort-zone {
+            position: absolute;
+            background-color: var(--color-comfort-green);
+            opacity: 0.6;
+            height: 100%; /* 佔滿軌道高度 */
+            border-radius: 4px;
+            /* 25°C (83.33%) 到 27°C (90.00%) 在 0-30°C 範圍內 */
+            left: 83.333%; 
+            width: 6.667%;
+        }
+        /* 最終體感溫度指示器 */
+        #calibrator-indicator {
+            position: absolute;
+            top: 50%; /* 垂直居中 */
+            transform: translateY(-50%) translateX(-50%); /* 確保圓心對齊刻度 */
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            transition: all 0.8s ease-out;
+            border: 3px solid white;
+            /* left 位置將由 JS 設置 */
+        }
+        /* 戶外體感溫度指示線 (現為垂直線) */
+        #outdoor-indicator {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            width: 2px; /* 垂直線寬度 */
+            background-color: #A0A0A0; 
+            transition: left 0.8s ease-out;
+            /* left 位置將由 JS 設置 */
+        }
+        .input-box {
+            border: 1px solid #D1D5DB;
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+            font-size: 1.125rem;
+            text-align: center;
+        }
+        /* 針對手機優化 - 讓卡片內容更緊湊 */
+        @media (max-width: 639px) {
+            .card {
+                padding: 1rem; /* 減小手機上的卡片內邊距 */
+            }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center p-4 sm:p-8">
+
+    <header class="text-center mb-6 sm:mb-8">
+        <h1 class="text-2xl sm:text-4xl font-bold text-gray-800">26°C 溫度調校儀</h1>
+        <p class="text-sm sm:text-base text-gray-500 mt-1">目標體感舒適溫度：<span class="font-semibold text-gray-700">26°C</span></p>
+    </header>
+
+    <main class="w-full max-w-4xl space-y-4 sm:space-y-6">
+
+        <!-- 戶外體感溫度輸入區 - 現在只有一個欄位 -->
+        <section class="card">
+            <h3 class="text-lg sm:text-xl font-semibold mb-4 text-gray-800">1. 戶外起始溫度輸入 (T_戶外)</h3>
+            <div class="flex justify-center">
+                
+                <!-- 體感溫度 (T_sensible) - 作為唯一的環境輸入 -->
+                <div class="w-full max-w-xs">
+                    <label for="input-outdoor-temp" class="text-base sm:text-lg font-medium block mb-2 text-center text-gray-700">
+                        當前環境體感溫度
+                    </label>
+                    <input type="number" id="input-outdoor-temp" min="-10" max="40" step="0.5" value="" placeholder="請輸入°C" class="input-box w-full mx-auto block" oninput="updateTemperatureCalibrator()">
+                    <p class="text-xs text-gray-500 mt-1 text-center">單位：°C (請輸入您當下的體感溫度或氣溫)</p>
+                </div>
+            </div>
+
+            <!-- 計算結果顯示 -->
+            <div class="text-lg sm:text-xl font-extrabold text-gray-800 border-t pt-4 mt-4 w-full text-center">
+                <p class="text-sm font-light text-gray-500 mb-1">戶外起始溫度 (T_戶外)</p>
+                <span id="adjusted-temp-info" class="text-3xl sm:text-4xl text-gray-900">--°C</span>
+                <span id="needed-score-info" class="text-sm font-light text-gray-500 block">需要溫暖點數: --°C</span>
+            </div>
+        </section>
+
+        <!-- 核心溫度調校儀與結果 -->
+        <!-- flex-col on mobile, flex-row on large screen -->
+        <section class="card flex flex-col lg:flex-row justify-between items-start space-y-6 lg:space-y-0 lg:space-x-8">
+            
+            <!-- 左側：調校儀視覺化、按鈕和推薦清單 -->
+            <div class="w-full lg:w-1/3 flex flex-col items-center justify-center">
+                <!-- 水平指標條容器 -->
+                <div id="calibrator-container" class="relative w-full h-16 mb-8 pt-4"> 
+                    <!-- 26C 目標線 (現在是垂直線) -->
+                    <div class="absolute top-0 w-px h-full bg-gray-700" style="left: 86.667%; z-index: 10;"></div> 
+                    <span class="absolute -top-6 text-xs font-semibold text-gray-700" style="left: 86.667%; transform: translateX(-50%);">26°C (目標)</span>
+                    
+                    <!-- 溫度軌道 -->
+                    <div id="calibrator-track" class="absolute bottom-0">
+                        <!-- 舒適區標示: 25°C - 27°C (83.33% - 90.00%) -->
+                        <div class="comfort-zone"></div>
+                        
+                        <!-- 戶外體感溫度指示線 (T_戶外) -->
+                        <div id="outdoor-indicator" style="z-index: 5;"></div>
+                        
+                        <!-- 體感指示器 (最終體感 T_體感) -->
+                        <div id="calibrator-indicator" class="bg-gray-700" style="z-index: 20;"></div>
+                    </div>
+                </div>
+
+                <!-- 結果與按鈕 -->
+                <div class="text-center mt-4 w-full">
+                    <h2 id="result-status" class="text-xl font-bold text-gray-700">計算中...</h2>
+                    <p id="result-message" class="text-gray-500 mt-1">請點擊下方按鈕進行推薦。</p>
+                </div>
+                
+                <!-- 推薦按鈕 - 莫蘭迪藍色 -->
+                <button id="recommend-button" class="mt-4 w-full max-w-xs bg-slate-500 hover:bg-slate-600 text-white font-bold py-2.5 px-5 rounded-xl transition duration-150 shadow-lg shadow-slate-300">
+                    ✨ 推薦最適合穿搭
+                </button>
+                
+                <!-- 推薦清單顯示區 (移動到按鈕下方) -->
+                <div id="final-recommendation-list" class="pt-4 mt-4 w-full hidden">
+                     <!-- List will be populated here by JS -->
+                </div>
+            </div>
+
+            <!-- 右側：穿搭點數選擇器 -->
+            <div class="w-full lg:w-2/3 space-y-4">
+                <h3 class="text-lg sm:text-xl font-semibold mb-2 text-gray-800">2. 選擇您的單品 (加溫點數 °C)</h3>
+                
+                <!-- 調整為 3 欄佈局以適應更多項目，並分層顯示 -->
+                <div id="outfit-selector" class="grid grid-cols-3 gap-2 sm:gap-3">
+                    <!-- 項目將由 JS 渲染 -->
+                </div>
+
+                <div class="border-t pt-4 mt-4 flex justify-between items-center">
+                    <p class="text-lg font-medium">穿搭總點數 (T_點數):</p>
+                    <p id="total-score" class="text-3xl font-extrabold text-gray-800">0.0°C</p>
+                </div>
+                
+                <div class="border-t pt-4 mt-4">
+                    <p class="text-lg font-medium">最終體感溫度 (T_體感):</p>
+                    <p id="current-body-temp" class="text-3xl font-extrabold text-gray-800">--°C</p>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- 行動導向建議卡片 (只用於顯示推薦結果) -->
+        <section id="action-advice-card" class="card p-4 sm:p-6 bg-blue-100 border-l-4 border-blue-500 hidden">
+            <h3 class="text-lg sm:text-xl font-semibold text-gray-800">💡 穿搭建議</h3>
+            <p id="action-advice-text" class="text-gray-700 mt-2 text-sm sm:text-base"></p>
+        </section>
+    </main>
+
+    <script>
+        // --- 核心數據模型 ---
+        const OUTFIT_ITEMS = [
+            // 內衣 (Innerwear) - 可多選
+            { category: '內衣', name: '發熱衣', score: 4.0, icon: '🔥' }, 
+            { category: '內衣', name: '刷毛背心', score: 3.0, icon: '🎽' }, 
+            
+            // 上衣 (Top / Mid-layers) - 可多選 (對應使用者的「衣服」類別)
+            { category: '上衣', name: '薄棉T', score: 1.0, icon: '👚' },
+            { category: '上衣', name: '大學T / 厚T恤', score: 2.5, icon: '👕' },
+            { category: '上衣', name: '薄針織', score: 3.0, icon: '🧶' }, // 中層的薄針織衫/毛衣
+            { category: '上衣', name: '厚針織', score: 5.0, icon: '🧣' }, // 中層的厚毛衣
+            
+            // 褲子 (Bottoms) - 嚴格單選
+            { category: '褲子', name: '牛仔褲', score: 2.0, icon: '👖' },
+            { category: '褲子', name: '棉褲', score: 2.5, icon: '棉' },
+            { category: '褲子', name: '刷毛褲', score: 4.5, icon: '👖' },
+            { category: '褲子', name: '長裙', score: 1.5, icon: '👗' },
+            
+            // 外套 (Outerwear) - 嚴格單選
+            { category: '外套', name: '一般外套', score: 4.5, icon: '🧥' }, 
+            { category: '外套', name: '薄針織外套', score: 4.0, icon: '🧶' }, 
+            { category: '外套', name: '厚針織外套', score: 6.0, icon: '🧣' },
+            { category: '外套', name: '防風外套', score: 5.0, icon: '🌬️' },
+            { category: '外套', name: '刷毛外套', score: 7.0, icon: '🐑' },
+            { category: '外套', name: '大衣', score: 8.0, icon: '👑' },
+        ];
+
+        // --- 常數設定 ---
+        const TARGET_TEMP = 26.0; // 目標舒適溫度
+        const COMFORT_RANGE_MIN = 25.0; // 舒適區間下限
+        const COMFORT_RANGE_MAX = 27.0; // 舒適區間上限
+        const TEMP_MAX = 30.0; // 溫度計顯示的最高溫度 (0°C 到 30°C)
+
+        // --- 狀態管理 ---
+        let selectedItems = new Set(); // 儲存選中的單品名稱
+
+        // --- DOM 元素 ---
+        const $selector = document.getElementById('outfit-selector');
+        const $totalScore = document.getElementById('total-score');
+        const $adjustedTempInfo = document.getElementById('adjusted-temp-info');
+        const $neededScoreInfo = document.getElementById('needed-score-info');
+        const $currentBodyTemp = document.getElementById('current-body-temp');
+        const $calibratorIndicator = document.getElementById('calibrator-indicator');
+        const $outdoorIndicator = document.getElementById('outdoor-indicator');
+        const $resultStatus = document.getElementById('result-status');
+        const $resultMessage = document.getElementById('result-message');
+        const $actionAdviceCard = document.getElementById('action-advice-card');
+        const $actionAdviceText = document.getElementById('action-advice-text');
+        
+        // 輸入元素
+        const $inputOutdoorTemp = document.getElementById('input-outdoor-temp'); // 現在這是唯一的環境輸入
+
+        const $recommendButton = document.getElementById('recommend-button');
+        const $finalRecommendationList = document.getElementById('final-recommendation-list'); 
+
+        // --- 核心邏輯函數：UI 顯示與計算 ---
+
+        /**
+         * 將體感溫度轉換為溫度計上的 CSS left 位置 (0-30°C 範圍內)
+         * @param {number} temp - 體感溫度 (C°)
+         * @returns {string} CSS left value (percentage)
+         */
+        function tempToCssPosition(temp) {
+            // 0°C -> 0%, 30°C -> 100%
+            const clampedTemp = Math.max(0, Math.min(TEMP_MAX, temp));
+            // Calculate position as a percentage of the width
+            const percentage = (clampedTemp / TEMP_MAX) * 100; 
+            return `${percentage}%`;
+        }
+        
+        /**
+         * 更新戶外體感指示器。
+         * @param {number} outdoorTemp - 計算出的戶外體感溫度 (T_戶外)
+         */
+        function updateOutdoorIndicator(outdoorTemp) {
+            const indicatorPosition = tempToCssPosition(outdoorTemp);
+            $outdoorIndicator.style.left = indicatorPosition;
+            $outdoorIndicator.title = `戶外起始溫度: ${outdoorTemp.toFixed(1)}°C`;
+        }
+
+        /**
+         * 渲染推薦清單到專屬區塊。
+         * @param {Array<Set<string>>} recommendedOutfits - 推薦的單品名稱集合陣列 (最多兩組)
+         */
+        function renderRecommendationList(recommendedOutfits) {
+            // 如果沒有推薦項目，則隱藏
+            if (recommendedOutfits.length === 0) {
+                $finalRecommendationList.classList.add('hidden');
+                return;
+            }
+
+            // 1. 顯示容器
+            $finalRecommendationList.classList.remove('hidden');
+
+            let listHtml = `<h3 class="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-gray-800">✅ 推薦穿搭組合 (${recommendedOutfits.length} 組)</h3>`;
+
+            // 遍歷每一組推薦
+            recommendedOutfits.forEach((recommendedItems, index) => {
+                const optionNumber = index + 1;
+                
+                // 1. 計算該選項的總分
+                const optionScore = Array.from(recommendedItems).reduce((sum, name) => {
+                    const item = OUTFIT_ITEMS.find(i => i.name === name);
+                    return sum + (item ? item.score : 0);
+                }, 0);
+                
+                // 為了顯示更貼近使用者用語，將 '上衣' 顯示為 '衣服'
+                
+                listHtml += `<div class="mb-3 p-3 sm:p-4 border rounded-lg shadow-sm bg-gray-50">`;
+                listHtml += `<p class="text-lg sm:text-xl font-bold text-slate-700 mb-2">選項 ${optionNumber} (總點數 +${optionScore.toFixed(1)}°C)</p>`;
+
+                // 2. 依新分類整理單品 (按照穿脫順序: 外套, 上衣, 內衣, 褲子)
+                const categorized = {
+                    '外套': [],
+                    '上衣': [], 
+                    '內衣': [],
+                    '褲子': []
+                };
+
+                recommendedItems.forEach(name => {
+                    const item = OUTFIT_ITEMS.find(i => i.name === name);
+                    if (item && categorized.hasOwnProperty(item.category)) {
+                       categorized[item.category].push(item);
+                    }
+                });
+
+                // 3. 構建 HTML 列表
+                listHtml += `<div class="space-y-1 sm:space-y-2">`;
+                for (const category of ['外套', '上衣', '內衣', '褲子']) {
+                    const displayCategory = (category === '上衣' ? '衣服' : category); 
+                    const items = categorized[category];
+
+                    if (items.length > 0) {
+                        listHtml += `<p class="font-semibold text-xs sm:text-sm text-gray-600">${displayCategory}：`;
+                        listHtml += items.map(item => 
+                            `<span class="text-sm sm:text-base text-gray-800 ml-1">${item.icon} ${item.name} 
+                            <span class="font-normal text-xs text-comfort-green">(+${item.score.toFixed(1)}°C)</span></span>`
+                        ).join(' / ');
+                        listHtml += `</p>`;
+                    }
+                }
+                listHtml += `</div>`;
+                listHtml += `</div>`;
+            });
+
+            $finalRecommendationList.innerHTML = listHtml;
+        }
+
+
+        /**
+         * 執行核心計算，更新所有 UI 元素。
+         * @param {boolean} isRecommendation - 是否為推薦模式調用
+         */
+        function updateTemperatureCalibrator(isRecommendation = false) {
+            
+            // 0. 讀取輸入值
+            const T_outdoor_input_str = $inputOutdoorTemp.value;
+            const T_outdoor_sensible = T_outdoor_input_str ? parseFloat(T_outdoor_input_str) : null; 
+
+            // 處理初始空白或無效輸入的情況
+            if (T_outdoor_sensible === null || isNaN(T_outdoor_sensible)) {
+                $adjustedTempInfo.textContent = '--°C';
+                $neededScoreInfo.textContent = '需要溫暖點數: --°C';
+                $currentBodyTemp.textContent = '--°C';
+                $outdoorIndicator.style.left = '0%'; // 將指標設為 0
+                $calibratorIndicator.style.left = '0%'; // 將指標設為 0
+                $calibratorIndicator.style.backgroundColor = 'gray'; // 設為灰色
+                $resultStatus.textContent = '計算中...';
+                $resultMessage.textContent = '請輸入當前環境體感溫度。';
+                $totalScore.textContent = '0.0°C';
+                return; // 終止後續計算
+            }
+            
+            // T_戶外 (現在直接使用輸入值)
+            const T_outdoor = T_outdoor_sensible;
+
+
+            // 1. 計算穿搭總點數 (T_點數)
+            let totalScore = 0;
+            OUTFIT_ITEMS.forEach(item => {
+                if (selectedItems.has(item.name)) {
+                    totalScore += item.score;
+                }
+            });
+
+            // 2. 計算當前體感溫度 (T_體感) 與所需點數
+            const currentBodyTemp = T_outdoor + totalScore;
+            const neededScore = TARGET_TEMP - T_outdoor;
+            
+            // 3. 更新 UI 數字
+            $totalScore.textContent = `${totalScore.toFixed(1)}°C`;
+            $currentBodyTemp.textContent = `${currentBodyTemp.toFixed(1)}°C`;
+            $adjustedTempInfo.textContent = `${T_outdoor.toFixed(1)}°C`; // 顯示 T_戶外
+            
+            // 確保需要的點數顯示正確的 + / - 符號
+            const neededScoreSign = neededScore > 0 ? '' : '+'; // 如果neededScore是負數 (溫度高)，則顯示 +
+            $neededScoreInfo.innerHTML = `需要溫暖點數: **${neededScoreSign}${neededScore.toFixed(1)}°C**`;
+
+            // 4. 更新戶外體感指示器位置 (使用 T_戶外)
+            updateOutdoorIndicator(T_outdoor);
+            
+            // 5. 更新最終體感溫度指示器位置和顏色 (使用 T_體感)
+            const indicatorPosition = tempToCssPosition(currentBodyTemp);
+            $calibratorIndicator.style.left = indicatorPosition;
+
+            let indicatorColor = '';
+            let statusText = '';
+            let messageText = '';
+            let adviceVisible = isRecommendation; // 只有在推薦模式下才顯示建議卡片
+            
+            // 如果不是推薦模式，且選中項目為空，則隱藏推薦清單
+            if (!isRecommendation && selectedItems.size === 0) {
+                 $finalRecommendationList.classList.add('hidden');
+            }
+
+
+            // 6. 判斷舒適狀態 (核心判讀)
+            if (currentBodyTemp >= COMFORT_RANGE_MIN && currentBodyTemp <= COMFORT_RANGE_MAX) {
+                // 完美舒適 (綠色區塊)
+                indicatorColor = 'var(--color-comfort-green)';
+                statusText = '✅ 完美舒適！';
+                messageText = isRecommendation ? '推薦組合讓您恰好落在舒適區間！' : '穿搭與環境完美匹配，享受從容穩定的一天。';
+            } else {
+                
+                const tempDiff = currentBodyTemp - TARGET_TEMP;
+
+                if (tempDiff > 0) { // 過熱
+                    indicatorColor = 'var(--color-warm)';
+                    statusText = '🥵 過熱警告！';
+                    messageText = `當前體感高於目標 **${tempDiff.toFixed(1)}°C**。`;
+                    
+                } else { // 過冷
+                    indicatorColor = 'var(--color-cool)';
+                    statusText = '🥶 過冷提醒！';
+                    messageText = `當前體感低於目標 **${Math.abs(tempDiff).toFixed(1)}°C**。`;
+                }
+            }
+            
+            // 7. 更新狀態文字和指示器顏色
+            $calibratorIndicator.style.backgroundColor = indicatorColor;
+            $resultStatus.textContent = statusText;
+            $resultMessage.textContent = messageText;
+
+            // 8. 顯示/隱藏行動建議卡片 (只有在推薦模式下才顯示)
+            
+            // 統一移除所有顏色背景類別，防止錯誤堆疊
+            $actionAdviceCard.classList.remove(
+                'bg-blue-100', 'border-blue-500', 
+                'bg-red-100', 'border-red-500', 
+                'bg-comfort-green/20', 'border-comfort-green'
+            );
+
+            $actionAdviceCard.classList.toggle('hidden', !adviceVisible);
+
+            // 返回計算後的戶外體感溫度，供 recommendOutfit 使用
+            return T_outdoor;
+        }
+
+
+        /**
+         * 複雜邏輯: 根據所需分數，找到最接近目標的穿搭組合 (考慮單選和多選限制)。
+         * @param {number} neededScore - 需要的總分數 (26.0 - T_戶外)
+         * @param {number} T_outdoor - 戶外起始溫度
+         * @returns {Array<Set<string>>} - 推薦的單品名稱集合 (最多兩組)
+         */
+        function recommendOutfit(neededScore, T_outdoor) {
+            
+            // 如果戶外體感溫度無法計算，則不進行推薦
+            if (isNaN(T_outdoor)) {
+                return [];
+            }
+            
+            const allOutfits = [];
+            
+            // 定義 helper：是否添加 "無" 選項
+            const addNoneOption = (items, category) => items.concat({ name: `無${category}`, score: 0, category: category, icon: '➖' });
+
+            // 1. 強制層次 (Mandatory) - 不加 "無"
+            const pantItems = OUTFIT_ITEMS.filter(item => item.category === '褲子');
+            const topItems = OUTFIT_ITEMS.filter(item => item.category === '上衣'); 
+
+            // 2. 可選層次 (Optional) - 加 "無"
+            const innerItems = addNoneOption(OUTFIT_ITEMS.filter(item => item.category === '內衣'), '內衣');
+            const outerItems = addNoneOption(OUTFIT_ITEMS.filter(item => item.category === '外套'), '外套');
+            
+            // 3. 遍歷組合 (約 1152 種組合)
+            for (const pant of pantItems) {
+                for (const top of topItems) {
+                    for (const outer of outerItems) {
+                        for (const inner of innerItems) {
+                            
+                            const currentTotalScore = pant.score + top.score + outer.score + inner.score;
+                            const diff = Math.abs(neededScore - currentTotalScore);
+
+                            // 構建當前穿搭
+                            const currentOutfit = new Set();
+                            currentOutfit.add(pant.name); 
+                            currentOutfit.add(top.name);  
+                            if (outer.score > 0) currentOutfit.add(outer.name);
+                            if (inner.score > 0) currentOutfit.add(inner.name);
+                            
+                            allOutfits.push({
+                                outfit: currentOutfit,
+                                diff: diff,
+                                score: currentTotalScore
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // 4. 排序並篩選前兩名，確保組合不同
+            allOutfits.sort((a, b) => a.diff - b.diff);
+
+            const topOutfits = [];
+            const uniqueOutfitSignatures = new Set();
+
+            for (const outfitObj of allOutfits) {
+                // 創建一個穩定的簽名來識別重複的穿搭組合 (例如：T恤|牛仔褲|薄外套)
+                const signature = Array.from(outfitObj.outfit).sort().join('|');
+
+                if (!uniqueOutfitSignatures.has(signature)) {
+                    topOutfits.push(outfitObj);
+                    uniqueOutfitSignatures.add(signature);
+                    if (topOutfits.length >= 2) break; // 找到兩組就停止
+                }
+            }
+
+
+            // 5. 更新建議文字 - 使用第一組的最佳搭配進行總結
+            const bestOutfitObj = topOutfits[0];
+            if (bestOutfitObj) {
+                const finalScore = bestOutfitObj.score;
+                const finalTemp = T_outdoor + finalScore;
+
+                // 推薦模式下，設置建議卡片的通用內容
+                $actionAdviceCard.classList.add('bg-blue-100', 'border-blue-500'); // 確保在推薦模式下顯示藍色
+                $actionAdviceText.innerHTML = `
+                    **您的戶外起始溫度 (T_戶外)：** **${T_outdoor.toFixed(1)}°C** (目標 **${TARGET_TEMP.toFixed(1)}°C**)。<br>
+                    **系統推薦總點數 (選項一)：** **${finalScore.toFixed(1)}°C**，預計最終體感將達到 **${finalTemp.toFixed(1)}°C**。
+                `;
+
+                // 額外處理推薦組合的微調訊息 (過熱或過冷)
+                const diffFromTarget = finalTemp - TARGET_TEMP;
+                if (Math.abs(diffFromTarget) > 0.5) {
+                    if (diffFromTarget > 0) {
+                        // 過熱提醒
+                        $actionAdviceText.innerHTML += `<br><strong>⚠️ 注意：</strong> 推薦總分高出目標 **${diffFromTarget.toFixed(1)}°C**，請預留脫衣空間。`;
+                    } else {
+                        // 過冷提醒
+                        $actionAdviceText.innerHTML += `<br><strong>⚠️ 注意：</strong> 推薦總分低於目標 **${Math.abs(diffFromTarget).toFixed(1)}°C**，建議額外添加圍巾或手套等配件。`;
+                    }
+                }
+            } else {
+                // Should not happen if T_outdoor is valid
+                $actionAdviceText.innerHTML = "未能找到合適的穿搭組合。請檢查輸入溫度範圍。";
+            }
+
+
+            // 返回原始的 Set<string> 格式
+            return topOutfits.map(o => o.outfit);
+        }
+
+        /**
+         * 處理推薦按鈕點擊事件。
+         */
+        function handleRecommendButtonClick() {
+             // 1. 檢查是否有足夠的輸入來計算 T_戶外
+            const T_outdoor_sensible = $inputOutdoorTemp.value ? parseFloat($inputOutdoorTemp.value) : null;
+            
+            if (T_outdoor_sensible === null || isNaN(T_outdoor_sensible)) {
+                alert("請先輸入當前環境體感溫度，才能進行穿搭推薦！");
+                return;
+            }
+
+            // 2. 重置所有選項的樣式
+            selectedItems.clear();
+            document.querySelectorAll('#outfit-selector button').forEach(button => {
+                button.classList.remove('bg-comfort-green', 'text-white', 'shadow-md');
+                button.classList.add('bg-white', 'hover:bg-gray-50');
+            });
+
+            // 3. 執行計算並取得戶外體感溫度
+            const T_outdoor = updateTemperatureCalibrator(false);
+            const neededScore = TARGET_TEMP - T_outdoor;
+
+            // 4. 執行推薦邏輯 (取得多組推薦)
+            const recommendedOutfits = recommendOutfit(neededScore, T_outdoor); // Now returns Array<Set<string>>
+
+            // 5. 自動選中【第一組】推薦的單品並更新 UI
+            if (recommendedOutfits.length > 0) {
+                const recommended = recommendedOutfits[0]; // 使用第一個最佳選項
+                
+                recommended.forEach(name => {
+                    // 排除 '無內衣' 或 '無外套' 的選項
+                    if (!name.startsWith('無')) {
+                        selectedItems.add(name);
+                        const button = document.querySelector(`button[data-name='${name}']`);
+                        if (button) {
+                            button.classList.add('bg-comfort-green', 'text-white', 'shadow-md');
+                            button.classList.remove('bg-white', 'hover:bg-gray-50');
+                        }
+                    }
+                });
+            }
+
+            // 6. 渲染推薦清單到專屬區塊 (顯示所有選項)
+            renderRecommendationList(recommendedOutfits);
+
+            // 7. 更新校準儀與結果 (設置 isRecommendation 為 true, 根據選中的第一組)
+            updateTemperatureCalibrator(true);
+        }
+
+        /**
+         * 處理穿搭單品選擇事件 (使用者手動點擊)。
+         */
+        function handleItemClick(event) {
+            const button = event.currentTarget;
+            const itemName = button.dataset.name;
+
+            // 手動點選時，隱藏自動推薦清單和建議卡片
+            $finalRecommendationList.classList.add('hidden');
+            $actionAdviceCard.classList.add('hidden'); // 手動調整時隱藏建議卡
+
+            if (selectedItems.has(itemName)) {
+                selectedItems.delete(itemName);
+                button.classList.remove('bg-comfort-green', 'text-white', 'shadow-md');
+                button.classList.add('bg-white', 'hover:bg-gray-50');
+            } else {
+                // 針對「外套」和「褲子」做單選限制
+                const itemCategory = button.dataset.category;
+                // 檢查是否為單選類別
+                if (itemCategory === '外套' || itemCategory === '褲子') { 
+                    OUTFIT_ITEMS.forEach(item => {
+                        if (item.category === itemCategory && selectedItems.has(item.name)) {
+                             selectedItems.delete(item.name);
+                             // 找到並重置被取消的按鈕樣式
+                             const oldBtn = document.querySelector(`button[data-name='${item.name}']`);
+                             if(oldBtn) {
+                                oldBtn.classList.remove('bg-comfort-green', 'text-white', 'shadow-md');
+                                oldBtn.classList.add('bg-white', 'hover:bg-gray-50');
+                             }
+                        }
+                    });
+                }
+                
+                selectedItems.add(itemName);
+                button.classList.add('bg-comfort-green', 'text-white', 'shadow-md');
+                button.classList.remove('bg-white', 'hover:bg-gray-50');
+            }
+
+            // 手動點選時，不使用推薦模式，adviceVisible 為 false
+            updateTemperatureCalibrator(false);
+        }
+
+        /**
+         * 初始化穿搭單品選擇器 UI。
+         */
+        function initializeSelectorUI() {
+            // 定義顯示順序和群組
+            const displayCategories = ['外套', '上衣', '內衣', '褲子'];
+
+            // 按照分類分組
+            const categorizedItems = OUTFIT_ITEMS.reduce((acc, item) => {
+                acc[item.category] = acc[item.category] || [];
+                acc[item.category].push(item);
+                return acc;
+            }, {});
+
+            // 清空舊的選擇器內容
+            $selector.innerHTML = ''; 
+
+            // 渲染每一個類別
+            displayCategories.forEach(category => {
+                const items = categorizedItems[category];
+                if (items && items.length > 0) {
+                    // 為了顯示更貼近使用者用語，將 '上衣' 顯示為 '衣服'
+                    const displayCategory = (category === '上衣' ? '衣服' : category); 
+
+                    const categoryTitle = document.createElement('h4');
+                    // 調整文字大小以適應手機
+                    categoryTitle.className = "col-span-3 text-base sm:text-lg font-bold text-gray-700 mt-4 mb-2 border-b pb-1";
+                    categoryTitle.textContent = displayCategory;
+                    $selector.appendChild(categoryTitle);
+
+                    items.forEach(item => {
+                        const button = document.createElement('button');
+                        // 針對手機使用 p-2 較小的內邊距，桌面使用 sm:p-3
+                        button.className = `card text-center transition duration-150 ease-in-out bg-white hover:bg-gray-50 p-2 sm:p-3 flex flex-col items-center justify-center h-full w-full break-words`;
+                        button.dataset.name = item.name;
+                        button.dataset.category = item.category;
+
+                        button.innerHTML = `
+                            <span class="text-lg sm:text-xl mb-1">${item.icon}</span>
+                            <span class="text-xs sm:text-sm font-medium leading-tight w-full">${item.name}</span>
+                            <span class="text-xs text-gray-400 mt-1">${item.score.toFixed(1)}°C</span>
+                        `;
+                        button.addEventListener('click', handleItemClick);
+                        $selector.appendChild(button);
+                    });
+                }
+            });
+        }
+        
+        // --- 初始化 APP ---
+        window.onload = () => {
+            initializeSelectorUI();
+            $recommendButton.addEventListener('click', handleRecommendButtonClick);
+            
+            // 初始載入時，更新一次 UI
+            updateTemperatureCalibrator();
+        };
+
+        // 🚨 簡化的自定義 alert 函數，因為不能使用 window.alert()
+        function alert(message) {
+            // 在這裡可以實作一個更美觀的模態框 UI
+            console.error("Alert:", message);
+            // 為了簡化，我們只將錯誤訊息顯示在結果狀態中
+            $resultStatus.textContent = "❗ 錯誤";
+            $resultMessage.textContent = message;
+        }
+
+    </script>
+</body>
+</html>
