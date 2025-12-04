@@ -21,6 +21,10 @@
             --color-comfort-green: #A3B8A8;  /* 柔和淡灰綠 - 舒適區/選中項 (保留為提示色) */
             --color-warm: #D1A5A5;           /* 玫瑰灰 - 過熱警示 */
             --color-cool: #A2B2C2;           /* 板岩灰藍 - 過冷警示 */
+
+            /* --- 用戶指定穿搭按鈕顏色 --- */
+            --color-default-brown: #bb9a88;  /* 按鈕預設背景色 (暖棕色) */
+            --color-selected-light: #FFFBF0; /* 按鈕選中背景色 (米白色) */
         }
         body {
             font-family: 'Inter', sans-serif;
@@ -99,14 +103,18 @@
             border-left: 4px solid var(--color-cool); 
         }
 
-        /* 穿搭按鈕預設背景為白色，選中時變為舒適綠 */
+        /* 穿搭按鈕預設背景為#bb9a88，選中時變為米白色 */
         .outfit-btn {
-            background-color: white; 
-            color: var(--color-text-primary);
+            background-color: var(--color-default-brown); /* 預設為暖棕色 */
+            color: white; /* 預設文字為白色以確保對比度 */
+            border: 1px solid #A18A7D; 
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* 添加輕微陰影 */
         }
         .outfit-btn.selected-item {
-            background-color: var(--color-comfort-green) !important;
-            color: white !important;
+            background-color: var(--color-selected-light) !important; /* 選中時為米白色 */
+            color: var(--color-text-primary) !important; /* 選中文字變回主要深色 */
+            border: 3px solid var(--color-accent-gray); /* 強調選中項 */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15); /* 加深選中陰影 */
         }
         
         /* 針對手機優化 */
@@ -137,7 +145,8 @@
                     <label for="input-actual-temp" class="text-base sm:text-lg font-medium block mb-2 text-center">
                         實際氣溫 (°C)
                     </label>
-                    <input type="number" id="input-actual-temp" min="-10" max="40" step="0.5" value="15" placeholder="請輸入°C" class="input-box w-full mx-auto block" oninput="updateTemperatureCalibrator()">
+                    <!-- 移除預設值 -->
+                    <input type="number" id="input-actual-temp" min="-10" max="40" step="0.5" placeholder="請輸入°C" class="input-box w-full mx-auto block" oninput="updateTemperatureCalibrator()">
                     <p class="text-xs text-gray-500 mt-1 text-center" style="color: #ADADAD;">當前環境的測量氣溫</p>
                 </div>
                 
@@ -146,7 +155,8 @@
                     <label for="input-wind-speed" class="text-base sm:text-lg font-medium block mb-2 text-center">
                         風速 (km/h)
                     </label>
-                    <input type="number" id="input-wind-speed" min="0" max="72" step="1" value="10" placeholder="請輸入km/h" class="input-box w-full mx-auto block" oninput="updateTemperatureCalibrator()">
+                    <!-- 移除預設值 -->
+                    <input type="number" id="input-wind-speed" min="0" max="72" step="1" placeholder="請輸入km/h" class="input-box w-full mx-auto block" oninput="updateTemperatureCalibrator()">
                     <p class="text-xs text-gray-500 mt-1 text-center" style="color: #ADADAD;">每 5 km/h 風速，體感簡單扣除 1°C</p>
                 </div>
             </div>
@@ -384,11 +394,11 @@
             const T_actual_str = $inputActualTemp.value;
             const V_wind_str = $inputWindSpeed.value;
             
+            // 檢查輸入是否為空或無效
             const T_actual = T_actual_str ? parseFloat(T_actual_str) : null; 
-            // 如果風速無效，預設為 0 (無風)
             const V_wind_kmh = V_wind_str ? parseFloat(V_wind_str) : 0; 
 
-            // 檢查是否輸入了實際溫度 (這是計算的基礎)
+            // 如果實際氣溫未輸入或無效，重置顯示
             if (T_actual === null || isNaN(T_actual)) {
                 $adjustedTempInfo.textContent = '--°C';
                 $neededScoreInfo.textContent = '需要溫暖點數: --°C';
@@ -399,6 +409,9 @@
                 $resultStatus.textContent = '計算中...';
                 $resultMessage.textContent = '請輸入實際氣溫。';
                 $totalScore.textContent = '0.0°C';
+                // 隱藏建議卡片和推薦列表
+                $finalRecommendationList.classList.add('hidden');
+                $actionAdviceCard.classList.add('hidden'); 
                 return; 
             }
             
@@ -582,7 +595,8 @@
             // 重置所有按鈕樣式
             document.querySelectorAll('#outfit-selector button').forEach(button => {
                 button.classList.remove('selected-item', 'shadow-md'); 
-                button.classList.add('outfit-btn', 'hover:bg-gray-50');
+                // 推薦時重置為預設樣式
+                button.classList.add('outfit-btn'); 
             });
 
             const T_outdoor = updateTemperatureCalibrator(false);
@@ -600,7 +614,7 @@
                         if (button) {
                             // 應用選中樣式
                             button.classList.add('selected-item', 'shadow-md');
-                            button.classList.remove('outfit-btn', 'hover:bg-gray-50');
+                            button.classList.remove('outfit-btn'); // 移除預設樣式
                         }
                     }
                 });
@@ -625,7 +639,7 @@
                 selectedItems.delete(itemName);
                 // 取消選中
                 button.classList.remove('selected-item', 'shadow-md');
-                button.classList.add('outfit-btn', 'hover:bg-gray-50');
+                button.classList.add('outfit-btn'); // 恢復預設樣式
             } else {
                 const itemCategory = button.dataset.category;
                 
@@ -637,7 +651,7 @@
                              if(oldBtn) {
                                 // 重置舊按鈕樣式
                                 oldBtn.classList.remove('selected-item', 'shadow-md');
-                                oldBtn.classList.add('outfit-btn', 'hover:bg-gray-50');
+                                oldBtn.classList.add('outfit-btn'); // 恢復預設樣式
                              }
                         }
                     });
@@ -646,7 +660,7 @@
                 selectedItems.add(itemName);
                 // 選中
                 button.classList.add('selected-item', 'shadow-md');
-                button.classList.remove('outfit-btn', 'hover:bg-gray-50');
+                button.classList.remove('outfit-btn'); // 移除預設樣式
             }
 
             updateTemperatureCalibrator(false);
@@ -678,17 +692,30 @@
 
                     items.forEach(item => {
                         const button = document.createElement('button');
-                        // 使用 outfit-btn class 實現樣式控制
-                        button.className = `card outfit-btn text-center transition duration-150 ease-in-out hover:bg-gray-50 p-2 sm:p-3 flex flex-col items-center justify-center h-full w-full break-words`;
+                        // 初始狀態應用預設樣式
+                        button.className = `card outfit-btn text-center transition duration-150 ease-in-out p-2 sm:p-3 flex flex-col items-center justify-center h-full w-full break-words`;
                         button.dataset.name = item.name;
                         button.dataset.category = item.category;
 
                         button.innerHTML = `
                             <span class="text-lg sm:text-xl mb-1">${item.icon}</span>
                             <span class="text-xs sm:text-sm font-medium leading-tight w-full">${item.name}</span>
-                            <span class="text-xs mt-1" style="color: #ADADAD;">${item.score.toFixed(1)}°C</span>
+                            <span class="text-xs mt-1" style="color: rgba(255, 255, 255, 0.7);">+${item.score.toFixed(1)}°C</span>
                         `;
-                        button.addEventListener('click', handleItemClick);
+                        
+                        // 確保選中時，文字的顏色是深色；未選中時，文字的顏色是淺色
+                        const scoreSpan = button.querySelector('span:last-child');
+                        button.addEventListener('click', (e) => {
+                            handleItemClick(e);
+                            // 點擊後同步更新分數標籤的顏色以匹配選中/未選中狀態
+                            if (button.classList.contains('selected-item')) {
+                                scoreSpan.style.color = 'var(--color-text-primary)';
+                            } else {
+                                scoreSpan.style.color = 'rgba(255, 255, 255, 0.7)';
+                            }
+                        });
+
+
                         $selector.appendChild(button);
                     });
                 }
@@ -700,7 +727,7 @@
             initializeSelectorUI();
             $recommendButton.addEventListener('click', handleRecommendButtonClick);
             
-            // 載入時觸發一次計算，顯示預設輸入的結果 (15°C, 10 km/h)
+            // 載入時觸發一次計算，顯示當前空白輸入的結果 ('--°C', '計算中...')
             updateTemperatureCalibrator(); 
         };
 
