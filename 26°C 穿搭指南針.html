@@ -127,23 +127,33 @@
 
     <main class="w-full max-w-4xl space-y-4 sm:space-y-6">
 
-        <!-- 區塊 1: 戶外體感溫度輸入區 (背景色: 統一的淺色莫蘭迪) -->
+        <!-- 區塊 1: 戶外環境參數輸入區 (背景色: 統一的淺色莫蘭迪) -->
         <section class="card">
-            <h3 class="text-lg sm:text-xl font-semibold mb-4">1. 戶外起始溫度輸入 (T_戶外)</h3>
-            <div class="flex justify-center">
+            <h3 class="text-lg sm:text-xl font-semibold mb-4">1. 戶外環境參數輸入</h3>
+            <div class="flex flex-wrap justify-center gap-4">
                 
-                <div class="w-full max-w-xs">
-                    <label for="input-outdoor-temp" class="text-base sm:text-lg font-medium block mb-2 text-center">
-                        當前環境體感溫度
+                <!-- 實際溫度輸入 -->
+                <div class="w-full sm:w-1/2 max-w-xs">
+                    <label for="input-actual-temp" class="text-base sm:text-lg font-medium block mb-2 text-center">
+                        實際氣溫 (°C)
                     </label>
-                    <input type="number" id="input-outdoor-temp" min="-10" max="40" step="0.5" value="" placeholder="請輸入°C" class="input-box w-full mx-auto block" oninput="updateTemperatureCalibrator()">
-                    <p class="text-xs text-gray-500 mt-1 text-center" style="color: #ADADAD;">單位：°C (請輸入您當下的體感溫度或氣溫)</p>
+                    <input type="number" id="input-actual-temp" min="-10" max="40" step="0.5" value="15" placeholder="請輸入°C" class="input-box w-full mx-auto block" oninput="updateTemperatureCalibrator()">
+                    <p class="text-xs text-gray-500 mt-1 text-center" style="color: #ADADAD;">當前環境的測量氣溫</p>
+                </div>
+                
+                <!-- 風速輸入 - 單位 km/h，並使用簡化扣分機制 -->
+                <div class="w-full sm:w-1/2 max-w-xs">
+                    <label for="input-wind-speed" class="text-base sm:text-lg font-medium block mb-2 text-center">
+                        風速 (km/h)
+                    </label>
+                    <input type="number" id="input-wind-speed" min="0" max="72" step="1" value="10" placeholder="請輸入km/h" class="input-box w-full mx-auto block" oninput="updateTemperatureCalibrator()">
+                    <p class="text-xs text-gray-500 mt-1 text-center" style="color: #ADADAD;">每 5 km/h 風速，體感簡單扣除 1°C</p>
                 </div>
             </div>
 
             <!-- 計算結果顯示 -->
             <div class="text-lg sm:text-xl font-extrabold border-t pt-4 mt-4 w-full text-center">
-                <p class="text-sm font-light mb-1" style="color: #ADADAD;">戶外起始溫度 (T_戶外)</p>
+                <p class="text-sm font-light mb-1" style="color: #ADADAD;">**計算體感溫度 (T_戶外)**</p>
                 <span id="adjusted-temp-info" class="text-3xl sm:text-4xl">--°C</span>
                 <span id="needed-score-info" class="text-sm font-light block" style="color: #ADADAD;">需要溫暖點數: --°C</span>
             </div>
@@ -252,6 +262,9 @@
         const COMFORT_RANGE_MIN = 25.0; 
         const COMFORT_RANGE_MAX = 27.0; 
         const TEMP_MAX = 30.0; 
+        
+        // 簡化風速扣分機制: 每 5 km/h 扣除 1°C => 係數為 1/5 = 0.2
+        const WIND_DEDUCTION_FACTOR_KMH = 0.2; 
 
         // --- 狀態管理 ---
         let selectedItems = new Set(); 
@@ -269,7 +282,9 @@
         const $actionAdviceCard = document.getElementById('action-advice-card');
         const $actionAdviceText = document.getElementById('action-advice-text');
         
-        const $inputOutdoorTemp = document.getElementById('input-outdoor-temp'); 
+        // 輸入欄位
+        const $inputActualTemp = document.getElementById('input-actual-temp'); 
+        const $inputWindSpeed = document.getElementById('input-wind-speed'); 
 
         const $recommendButton = document.getElementById('recommend-button');
         const $finalRecommendationList = document.getElementById('final-recommendation-list'); 
@@ -294,7 +309,7 @@
         function updateOutdoorIndicator(outdoorTemp) {
             const indicatorPosition = tempToCssPosition(outdoorTemp);
             $outdoorIndicator.style.left = indicatorPosition;
-            $outdoorIndicator.title = `戶外起始溫度: ${outdoorTemp.toFixed(1)}°C`;
+            $outdoorIndicator.title = `戶外起始體感溫度: ${outdoorTemp.toFixed(1)}°C`;
         }
 
         /**
@@ -365,10 +380,16 @@
          */
         function updateTemperatureCalibrator(isRecommendation = false) {
             
-            const T_outdoor_input_str = $inputOutdoorTemp.value;
-            const T_outdoor_sensible = T_outdoor_input_str ? parseFloat(T_outdoor_input_str) : null; 
+            // 1. 讀取輸入參數
+            const T_actual_str = $inputActualTemp.value;
+            const V_wind_str = $inputWindSpeed.value;
+            
+            const T_actual = T_actual_str ? parseFloat(T_actual_str) : null; 
+            // 如果風速無效，預設為 0 (無風)
+            const V_wind_kmh = V_wind_str ? parseFloat(V_wind_str) : 0; 
 
-            if (T_outdoor_sensible === null || isNaN(T_outdoor_sensible)) {
+            // 檢查是否輸入了實際溫度 (這是計算的基礎)
+            if (T_actual === null || isNaN(T_actual)) {
                 $adjustedTempInfo.textContent = '--°C';
                 $neededScoreInfo.textContent = '需要溫暖點數: --°C';
                 $currentBodyTemp.textContent = '--°C';
@@ -376,13 +397,20 @@
                 $calibratorIndicator.style.left = '0%'; 
                 $calibratorIndicator.style.backgroundColor = 'gray'; 
                 $resultStatus.textContent = '計算中...';
-                $resultMessage.textContent = '請輸入當前環境體感溫度。';
+                $resultMessage.textContent = '請輸入實際氣溫。';
                 $totalScore.textContent = '0.0°C';
                 return; 
             }
             
+            // 2. 核心計算: 體感溫度 (T_戶外)
+            // 簡化風速扣分機制: T_戶外 = T_實際 - (風速(km/h) * 0.2)
+            const windEffect = V_wind_kmh * WIND_DEDUCTION_FACTOR_KMH;
+            let T_outdoor_sensible = T_actual - windEffect;
+            
+            // 將計算結果作為 T_outdoor (戶外起始體感溫度)
             const T_outdoor = T_outdoor_sensible;
 
+            // 3. 穿搭點數計算
             let totalScore = 0;
             OUTFIT_ITEMS.forEach(item => {
                 if (selectedItems.has(item.name)) {
@@ -390,11 +418,13 @@
                 }
             });
 
+            // 4. 最終體感與點數計算
             const currentBodyTemp = T_outdoor + totalScore;
             const neededScore = TARGET_TEMP - T_outdoor;
             
             $totalScore.textContent = `${totalScore.toFixed(1)}°C`;
             $currentBodyTemp.textContent = `${currentBodyTemp.toFixed(1)}°C`;
+            // 顯示計算出來的 T_戶外 (體感溫度)
             $adjustedTempInfo.textContent = `${T_outdoor.toFixed(1)}°C`; 
             
             const neededScoreSign = neededScore > 0 ? '' : '+'; 
@@ -514,8 +544,9 @@
                 const finalScore = bestOutfitObj.score;
                 const finalTemp = T_outdoor + finalScore;
 
+                // 建議文字現在顯示計算出來的 T_戶外
                 $actionAdviceText.innerHTML = `
-                    **您的戶外起始溫度 (T_戶外)：** **${T_outdoor.toFixed(1)}°C** (目標 **${TARGET_TEMP.toFixed(1)}°C**)。<br>
+                    **您的戶外起始體感溫度 (T_戶外)：** **${T_outdoor.toFixed(1)}°C** (目標 **${TARGET_TEMP.toFixed(1)}°C**)。<br>
                     **系統推薦總點數 (選項一)：** **${finalScore.toFixed(1)}°C**，預計最終體感將達到 **${finalTemp.toFixed(1)}°C**。
                 `;
 
@@ -539,10 +570,11 @@
          * 處理推薦按鈕點擊事件。
          */
         function handleRecommendButtonClick() {
-            const T_outdoor_sensible = $inputOutdoorTemp.value ? parseFloat($inputOutdoorTemp.value) : null;
+            // 現在只檢查實際氣溫是否已輸入
+            const T_actual_sensible = $inputActualTemp.value ? parseFloat($inputActualTemp.value) : null;
             
-            if (T_outdoor_sensible === null || isNaN(T_outdoor_sensible)) {
-                alert("請先輸入當前環境體感溫度，才能進行穿搭推薦！");
+            if (T_actual_sensible === null || isNaN(T_actual_sensible)) {
+                alert("請先輸入實際氣溫，才能進行穿搭推薦！");
                 return;
             }
 
@@ -668,7 +700,8 @@
             initializeSelectorUI();
             $recommendButton.addEventListener('click', handleRecommendButtonClick);
             
-            updateTemperatureCalibrator();
+            // 載入時觸發一次計算，顯示預設輸入的結果 (15°C, 10 km/h)
+            updateTemperatureCalibrator(); 
         };
 
         function alert(message) {
